@@ -1,29 +1,25 @@
-use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
+use crate::error::IoResultExt;
+use camino::{Utf8Path, Utf8PathBuf};
+use std::env;
 use std::{io, iter::repeat_with};
 
-use crate::error::IoResultExt;
-
-fn tmpname(prefix: &OsStr, suffix: &OsStr, rand_len: usize) -> OsString {
-    let mut buf = OsString::with_capacity(prefix.len() + suffix.len() + rand_len);
-    buf.push(prefix);
-    let mut char_buf = [0u8; 4];
-    for c in repeat_with(fastrand::alphanumeric).take(rand_len) {
-        buf.push(c.encode_utf8(&mut char_buf));
-    }
-    buf.push(suffix);
+fn tmpname(prefix: &str, suffix: &str, rand_len: usize) -> String {
+    let mut buf = String::with_capacity(prefix.len() + suffix.len() + rand_len);
+    buf.extend(prefix.chars());
+    buf.extend(repeat_with(fastrand::alphanumeric).take(rand_len));
+    buf.extend(suffix.chars());
     buf
 }
 
 pub fn create_helper<F, R>(
-    base: &Path,
-    prefix: &OsStr,
-    suffix: &OsStr,
+    base: &Utf8Path,
+    prefix: &str,
+    suffix: &str,
     random_len: usize,
     mut f: F,
 ) -> io::Result<R>
 where
-    F: FnMut(PathBuf) -> io::Result<R>,
+    F: FnMut(Utf8PathBuf) -> io::Result<R>,
 {
     let num_retries = if random_len != 0 {
         crate::NUM_RETRIES
@@ -47,4 +43,14 @@ where
         "too many temporary files exist",
     ))
     .with_err_path(|| base)
+}
+
+pub fn temp_dir() -> io::Result<Utf8PathBuf> {
+    Utf8PathBuf::from_path_buf(env::temp_dir())
+        .map_err(|_| io::Error::new(io::ErrorKind::Other, "OS temp_dir() is not UTF8"))
+}
+
+pub fn current_dir() -> io::Result<Utf8PathBuf> {
+    Utf8PathBuf::from_path_buf(env::current_dir()?)
+        .map_err(|_| io::Error::new(io::ErrorKind::Other, "OS current_dir() is not UTF8"))
 }

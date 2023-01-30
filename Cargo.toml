@@ -11,7 +11,7 @@ documentation = "https://docs.rs/tempfile"
 edition = "2018"
 exclude = ["/.travis.yml", "/appveyor.yml"]
 homepage = "http://stebalien.com/projects/tempfile-rs"
-keywords = ["tempfile", "tmpfile", "filesystem"]
+keywords = ["tempfile", "tmpfile", "filesystem", "camino"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Stebalien/tempfile"
 description = "A library for managing temporary files and directories."
@@ -20,6 +20,7 @@ description = "A library for managing temporary files and directories."
 cfg-if = "1"
 fastrand = "1.6.0"
 remove_dir_all = "0.5"
+camino = "1.1.2"
 
 [target.'cfg(any(unix, target_os = "wasi"))'.dependencies]
 rustix = { version = "0.36.0", features = ["fs"] }

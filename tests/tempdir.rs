@@ -16,6 +16,7 @@ use std::path::Path;
 use std::sync::mpsc::channel;
 use std::thread;
 
+use camino::Utf8Path;
 use tempfile::{Builder, TempDir};
 
 macro_rules! t {
@@ -43,9 +44,9 @@ impl PathExt for Path {
 
 fn test_tempdir() {
     let path = {
-        let p = t!(Builder::new().prefix("foobar").tempdir_in(&Path::new(".")));
+        let p = t!(Builder::new().prefix("foobar").tempdir_in(&Utf8Path::new(".")));
         let p = p.path();
-        assert!(p.to_str().unwrap().contains("foobar"));
+        assert!(p.as_str().contains("foobar"));
         p.to_path_buf()
     };
     assert!(!path.exists());
@@ -59,7 +60,7 @@ fn test_customnamed() {
         .rand_bytes(12)
         .tempdir()
         .unwrap();
-    let name = tmpfile.path().file_name().unwrap().to_str().unwrap();
+    let name = tmpfile.path().file_name().unwrap();
     assert!(name.starts_with("prefix"));
     assert!(name.ends_with("suffix"));
     assert_eq!(name.len(), 24);
@@ -202,7 +203,7 @@ pub fn test_remove_dir_all_ok() {
     let tmpdir = tmpdir.path();
     let root = tmpdir.join("foo");
 
-    println!("making {}", root.display());
+    println!("making {}", root.as_str());
     t!(fs::create_dir(&root));
     t!(fs::create_dir(&root.join("foo")));
     t!(fs::create_dir(&root.join("foo").join("bar")));

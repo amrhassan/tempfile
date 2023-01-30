@@ -1,11 +1,11 @@
 #![deny(rust_2018_idioms)]
 
+use camino::{Utf8Path, Utf8PathBuf};
 use std::env;
-use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
-use tempfile::{tempdir, Builder, NamedTempFile, TempPath};
+use std::path::Path;
+use tempfile::{tempdir, util, Builder, NamedTempFile, TempPath};
 
 fn exists<P: AsRef<Path>>(path: P) -> bool {
     std::fs::metadata(path.as_ref()).is_ok()
@@ -34,7 +34,7 @@ fn test_deleted() {
 fn test_persist() {
     let mut tmpfile = NamedTempFile::new().unwrap();
     let old_path = tmpfile.path().to_path_buf();
-    let persist_path = env::temp_dir().join("persisted_temporary_file");
+    let persist_path = util::temp_dir().unwrap().join("persisted_temporary_file");
     write!(tmpfile, "abcde").unwrap();
     {
         assert!(exists(&old_path));
@@ -91,7 +91,7 @@ fn test_customnamed() {
         .rand_bytes(12)
         .tempfile()
         .unwrap();
-    let name = tmpfile.path().file_name().unwrap().to_str().unwrap();
+    let name = tmpfile.path().file_name().unwrap();
     assert!(name.starts_with("tmp"));
     assert!(name.ends_with(".rs"));
     assert_eq!(name.len(), 18);
@@ -166,7 +166,7 @@ fn test_temppath_persist() {
     let tmppath = tmpfile.into_temp_path();
 
     let old_path = tmppath.to_path_buf();
-    let persist_path = env::temp_dir().join("persisted_temppath_file");
+    let persist_path = util::temp_dir().unwrap().join("persisted_temppath_file");
 
     {
         assert!(exists(&old_path));
@@ -254,11 +254,11 @@ fn temp_path_from_argument_types() {
 
     TempPath::from_path("");
     TempPath::from_path(String::new());
-    TempPath::from_path(OsStr::new(""));
-    TempPath::from_path(OsString::new());
-    TempPath::from_path(Path::new(""));
-    TempPath::from_path(PathBuf::new());
-    TempPath::from_path(PathBuf::new().into_boxed_path());
+    TempPath::from_path("");
+    TempPath::from_path(String::new());
+    TempPath::from_path(Utf8Path::new(""));
+    TempPath::from_path(Utf8PathBuf::new());
+    TempPath::from_path(Utf8PathBuf::new().into_boxed_path());
 }
 
 #[test]

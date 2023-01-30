@@ -1,5 +1,3 @@
-use std::env;
-use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 cfg_if::cfg_if! {
@@ -11,12 +9,13 @@ cfg_if::cfg_if! {
     }
 }
 use crate::util;
+use camino::Utf8Path;
 use std::path::Path;
 
 #[cfg(not(target_os = "redox"))]
 use rustix::fs::{cwd, linkat, renameat, unlinkat, AtFlags};
 
-pub fn create_named(path: &Path, open_options: &mut OpenOptions) -> io::Result<File> {
+pub fn create_named(path: &Utf8Path, open_options: &mut OpenOptions) -> io::Result<File> {
     open_options.read(true).write(true).create_new(true);
 
     #[cfg(not(target_os = "wasi"))]
@@ -27,12 +26,12 @@ pub fn create_named(path: &Path, open_options: &mut OpenOptions) -> io::Result<F
     open_options.open(path)
 }
 
-fn create_unlinked(path: &Path) -> io::Result<File> {
+fn create_unlinked(path: &Utf8Path) -> io::Result<File> {
     let tmp;
     // shadow this to decrease the lifetime. It can't live longer than `tmp`.
     let mut path = path;
     if !path.is_absolute() {
-        let cur_dir = env::current_dir()?;
+        let cur_dir = util::current_dir()?;
         tmp = cur_dir.join(path);
         path = &tmp;
     }
@@ -45,7 +44,7 @@ fn create_unlinked(path: &Path) -> io::Result<File> {
 }
 
 #[cfg(target_os = "linux")]
-pub fn create(dir: &Path) -> io::Result<File> {
+pub fn create(dir: &Utf8Path) -> io::Result<File> {
     use rustix::{fs::OFlags, io::Errno};
     OpenOptions::new()
         .read(true)
@@ -68,14 +67,10 @@ pub fn create(dir: &Path) -> io::Result<File> {
     create_unix(dir)
 }
 
-fn create_unix(dir: &Path) -> io::Result<File> {
-    util::create_helper(
-        dir,
-        OsStr::new(".tmp"),
-        OsStr::new(""),
-        crate::NUM_RAND_CHARS,
-        |path| create_unlinked(&path),
-    )
+fn create_unix(dir: &Utf8Path) -> io::Result<File> {
+    util::create_helper(dir, ".tmp", "", crate::NUM_RAND_CHARS, |path| {
+        create_unlinked(&path)
+    })
 }
 
 #[cfg(any(not(target_os = "wasi"), feature = "nightly"))]
@@ -101,9 +96,9 @@ pub fn reopen(_file: &File, _path: &Path) -> io::Result<File> {
 }
 
 #[cfg(not(target_os = "redox"))]
-pub fn persist(old_path: &Path, new_path: &Path, overwrite: bool) -> io::Result<()> {
+pub fn persist(old_path: &Utf8Path, new_path: &Utf8Path, overwrite: bool) -> io::Result<()> {
     if overwrite {
-        renameat(cwd(), old_path, cwd(), new_path)?;
+        renameat(cwd(), old_path.as_std_path(), cwd(), new_path.as_std_path())?;
     } else {
         // On Linux, use `renameat_with` to avoid overwriting an existing name,
         // if the kernel and the filesystem support it.
@@ -115,7 +110,13 @@ pub fn persist(old_path: &Path, new_path: &Path, overwrite: bool) -> io::Result<
 
             static NOSYS: AtomicBool = AtomicBool::new(false);
             if !NOSYS.load(Relaxed) {
-                match renameat_with(cwd(), old_path, cwd(), new_path, RenameFlags::NOREPLACE) {
+                match renameat_with(
+                    cwd(),
+                    old_path.as_std_path(),
+                    cwd(),
+                    new_path.as_std_path(),
+                    RenameFlags::NOREPLACE,
+                ) {
                     Ok(()) => return Ok(()),
                     Err(Errno::NOSYS) => NOSYS.store(true, Relaxed),
                     Err(Errno::INVAL) => {}
@@ -127,9 +128,15 @@ pub fn persist(old_path: &Path, new_path: &Path, overwrite: bool) -> io::Result<
         // Otherwise use `linkat` to create the new filesystem name, which
         // will fail if the name already exists, and then `unlinkat` to remove
         // the old name.
-        linkat(cwd(), old_path, cwd(), new_path, AtFlags::empty())?;
+        linkat(
+            cwd(),
+            old_path.as_std_path(),
+            cwd(),
+            new_path.as_std_path(),
+            AtFlags::empty(),
+        )?;
         // Ignore unlink errors. Can we do better?
-        let _ = unlinkat(cwd(), old_path, AtFlags::empty());
+        let _ = unlinkat(cwd(), old_path.as_std_path(), AtFlags::empty());
     }
     Ok(())
 }
@@ -140,6 +147,6 @@ pub fn persist(old_path: &Path, new_path: &Path, overwrite: bool) -> io::Result<
     Err(io::Error::from_raw_os_error(syscall::ENOSYS))
 }
 
-pub fn keep(_: &Path) -> io::Result<()> {
+pub fn keep(_: &Utf8Path) -> io::Result<()> {
     Ok(())
 }

@@ -1,3 +1,5 @@
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use std::env;
 use std::error;
 use std::ffi::OsStr;
@@ -6,9 +8,10 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::mem;
 use std::ops::Deref;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::error::IoResultExt;
+use crate::util;
 use crate::Builder;
 
 mod imp;
@@ -52,7 +55,9 @@ mod imp;
 ///
 /// [`std::env::temp_dir()`]: https://doc.rust-lang.org/std/env/fn.temp_dir.html
 pub fn tempfile() -> io::Result<File> {
-    tempfile_in(&env::temp_dir())
+    let temp_dir = Utf8PathBuf::from_path_buf(env::temp_dir())
+        .map_err(|_| io::Error::new(io::ErrorKind::Other, "OS temp_dir() is not UTF8"))?;
+    tempfile_in(&temp_dir)
 }
 
 /// Create a new temporary file in the specified directory.
@@ -92,7 +97,7 @@ pub fn tempfile() -> io::Result<File> {
 /// ```
 ///
 /// [`std::env::temp_dir()`]: https://doc.rust-lang.org/std/env/fn.temp_dir.html
-pub fn tempfile_in<P: AsRef<Path>>(dir: P) -> io::Result<File> {
+pub fn tempfile_in<P: AsRef<Utf8Path>>(dir: P) -> io::Result<File> {
     imp::create(dir.as_ref())
 }
 
@@ -138,7 +143,7 @@ impl error::Error for PathPersistError {
 ///
 /// When dropped, the temporary file is deleted.
 pub struct TempPath {
-    path: Box<Path>,
+    path: Box<Utf8Path>,
 }
 
 impl TempPath {
@@ -176,8 +181,8 @@ impl TempPath {
     /// # }
     /// ```
     pub fn close(mut self) -> io::Result<()> {
-        let result = fs::remove_file(&self.path).with_err_path(|| &*self.path);
-        self.path = PathBuf::new().into_boxed_path();
+        let result = fs::remove_file(&self.path.as_std_path()).with_err_path(|| &*self.path);
+        self.path = Utf8PathBuf::new().into_boxed_path();
         mem::forget(self);
         result
     }
@@ -225,13 +230,13 @@ impl TempPath {
     /// ```
     ///
     /// [`PathPersistError`]: struct.PathPersistError.html
-    pub fn persist<P: AsRef<Path>>(mut self, new_path: P) -> Result<(), PathPersistError> {
+    pub fn persist<P: AsRef<Utf8Path>>(mut self, new_path: P) -> Result<(), PathPersistError> {
         match imp::persist(&self.path, new_path.as_ref(), true) {
             Ok(_) => {
                 // Don't drop `self`. We don't want to try deleting the old
                 // temporary file path. (It'll fail, but the failure is never
                 // seen.)
-                self.path = PathBuf::new().into_boxed_path();
+                self.path = Utf8PathBuf::new().into_boxed_path();
                 mem::forget(self);
                 Ok(())
             }
@@ -284,7 +289,7 @@ impl TempPath {
     /// ```
     ///
     /// [`PathPersistError`]: struct.PathPersistError.html
-    pub fn persist_noclobber<P: AsRef<Path>>(
+    pub fn persist_noclobber<P: AsRef<Utf8Path>>(
         mut self,
         new_path: P,
     ) -> Result<(), PathPersistError> {
@@ -293,7 +298,7 @@ impl TempPath {
                 // Don't drop `self`. We don't want to try deleting the old
                 // temporary file path. (It'll fail, but the failure is never
                 // seen.)
-                self.path = PathBuf::new().into_boxed_path();
+                self.path = Utf8PathBuf::new().into_boxed_path();
                 mem::forget(self);
                 Ok(())
             }
@@ -335,13 +340,13 @@ impl TempPath {
     /// ```
     ///
     /// [`PathPersistError`]: struct.PathPersistError.html
-    pub fn keep(mut self) -> Result<PathBuf, PathPersistError> {
+    pub fn keep(mut self) -> Result<Utf8PathBuf, PathPersistError> {
         match imp::keep(&self.path) {
             Ok(_) => {
                 // Don't drop `self`. We don't want to try deleting the old
                 // temporary file path. (It'll fail, but the failure is never
                 // seen.)
-                let path = mem::replace(&mut self.path, PathBuf::new().into_boxed_path());
+                let path = mem::replace(&mut self.path, Utf8PathBuf::new().into_boxed_path());
                 mem::forget(self);
                 Ok(path.into())
             }
@@ -358,7 +363,7 @@ impl TempPath {
     /// This is mostly useful for interacting with libraries and external
     /// components that provide files to be consumed or expect a path with no
     /// existing file to be given.
-    pub fn from_path(path: impl Into<PathBuf>) -> Self {
+    pub fn from_path(path: impl Into<Utf8PathBuf>) -> Self {
         Self {
             path: path.into().into_boxed_path(),
         }
@@ -373,21 +378,33 @@ impl fmt::Debug for TempPath {
 
 impl Drop for TempPath {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        let _ = fs::remove_file(&self.path.as_std_path());
     }
 }
 
 impl Deref for TempPath {
-    type Target = Path;
+    type Target = Utf8Path;
 
-    fn deref(&self) -> &Path {
+    fn deref(&self) -> &Self::Target {
         &self.path
     }
 }
 
 impl AsRef<Path> for TempPath {
     fn as_ref(&self) -> &Path {
+        self.path.as_std_path()
+    }
+}
+
+impl AsRef<Utf8Path> for TempPath {
+    fn as_ref(&self) -> &Utf8Path {
         &self.path
+    }
+}
+
+impl AsRef<str> for TempPath {
+    fn as_ref(&self) -> &str {
+        self.path.as_str()
     }
 }
 
@@ -494,6 +511,13 @@ impl<F> fmt::Debug for NamedTempFile<F> {
 impl<F> AsRef<Path> for NamedTempFile<F> {
     #[inline]
     fn as_ref(&self) -> &Path {
+        self.path().as_std_path()
+    }
+}
+
+impl<F> AsRef<Utf8Path> for NamedTempFile<F> {
+    #[inline]
+    fn as_ref(&self) -> &Utf8Path {
         self.path()
     }
 }
@@ -605,7 +629,7 @@ impl NamedTempFile<File> {
     /// See [`NamedTempFile::new()`] for details.
     ///
     /// [`NamedTempFile::new()`]: #method.new
-    pub fn new_in<P: AsRef<Path>>(dir: P) -> io::Result<NamedTempFile> {
+    pub fn new_in<P: AsRef<Utf8Path>>(dir: P) -> io::Result<NamedTempFile> {
         Builder::new().tempfile_in(dir)
     }
 }
@@ -638,7 +662,7 @@ impl<F> NamedTempFile<F> {
     /// # }
     /// ```
     #[inline]
-    pub fn path(&self) -> &Path {
+    pub fn path(&self) -> &Utf8Path {
         &self.path
     }
 
@@ -720,7 +744,7 @@ impl<F> NamedTempFile<F> {
     /// ```
     ///
     /// [`PersistError`]: struct.PersistError.html
-    pub fn persist<P: AsRef<Path>>(self, new_path: P) -> Result<F, PersistError<F>> {
+    pub fn persist<P: AsRef<Utf8Path>>(self, new_path: P) -> Result<F, PersistError<F>> {
         let NamedTempFile { path, file } = self;
         match path.persist(new_path) {
             Ok(_) => Ok(file),
@@ -773,7 +797,7 @@ impl<F> NamedTempFile<F> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn persist_noclobber<P: AsRef<Path>>(self, new_path: P) -> Result<F, PersistError<F>> {
+    pub fn persist_noclobber<P: AsRef<Utf8Path>>(self, new_path: P) -> Result<F, PersistError<F>> {
         let NamedTempFile { path, file } = self;
         match path.persist_noclobber(new_path) {
             Ok(_) => Ok(file),
@@ -817,7 +841,7 @@ impl<F> NamedTempFile<F> {
     /// ```
     ///
     /// [`PathPersistError`]: struct.PathPersistError.html
-    pub fn keep(self) -> Result<(F, PathBuf), PersistError<F>> {
+    pub fn keep(self) -> Result<(F, Utf8PathBuf), PersistError<F>> {
         let (file, path) = (self.file, self.path);
         match path.keep() {
             Ok(path) => Ok((file, path)),
@@ -907,8 +931,7 @@ impl NamedTempFile<File> {
     /// # }
     /// ```
     pub fn reopen(&self) -> io::Result<File> {
-        imp::reopen(self.as_file(), NamedTempFile::path(self))
-            .with_err_path(|| NamedTempFile::path(self))
+        imp::reopen(self.as_file(), self.as_ref()).with_err_path(|| NamedTempFile::path(self))
     }
 }
 
@@ -988,13 +1011,13 @@ where
 }
 
 pub(crate) fn create_named(
-    mut path: PathBuf,
+    mut path: Utf8PathBuf,
     open_options: &mut OpenOptions,
 ) -> io::Result<NamedTempFile> {
     // Make the path absolute. Otherwise, changing directories could cause us to
     // delete the wrong file.
     if !path.is_absolute() {
-        path = env::current_dir()?.join(path)
+        path = util::current_dir()?.join(path)
     }
     imp::create_named(&path, open_options)
         .with_err_path(|| path.clone())

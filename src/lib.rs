@@ -173,16 +173,15 @@ doc_comment::doctest!("../README.md");
 const NUM_RETRIES: u32 = 1 << 31;
 const NUM_RAND_CHARS: usize = 6;
 
-use std::ffi::OsStr;
+use camino::Utf8Path;
 use std::fs::OpenOptions;
-use std::path::Path;
-use std::{env, io};
+use std::io;
 
 mod dir;
 mod error;
 mod file;
 mod spooled;
-mod util;
+pub mod util;
 
 pub use crate::dir::{tempdir, tempdir_in, TempDir};
 pub use crate::file::{
@@ -194,8 +193,8 @@ pub use crate::spooled::{spooled_tempfile, SpooledTempFile};
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Builder<'a, 'b> {
     random_len: usize,
-    prefix: &'a OsStr,
-    suffix: &'b OsStr,
+    prefix: &'a str,
+    suffix: &'b str,
     append: bool,
 }
 
@@ -203,8 +202,8 @@ impl<'a, 'b> Default for Builder<'a, 'b> {
     fn default() -> Self {
         Builder {
             random_len: crate::NUM_RAND_CHARS,
-            prefix: OsStr::new(".tmp"),
-            suffix: OsStr::new(""),
+            prefix: ".tmp",
+            suffix: "",
             append: false,
         }
     }
@@ -236,7 +235,7 @@ impl<'a, 'b> Builder<'a, 'b> {
     ///
     /// let name = named_tempfile
     ///     .path()
-    ///     .file_name().and_then(OsStr::to_str);
+    ///     .file_name();
     ///
     /// if let Some(name) = name {
     ///     assert!(name.starts_with("my-temporary-note"));
@@ -307,7 +306,7 @@ impl<'a, 'b> Builder<'a, 'b> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn prefix<S: AsRef<OsStr> + ?Sized>(&mut self, prefix: &'a S) -> &mut Self {
+    pub fn prefix<S: AsRef<str> + ?Sized>(&mut self, prefix: &'a S) -> &mut Self {
         self.prefix = prefix.as_ref();
         self
     }
@@ -334,7 +333,7 @@ impl<'a, 'b> Builder<'a, 'b> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn suffix<S: AsRef<OsStr> + ?Sized>(&mut self, suffix: &'b S) -> &mut Self {
+    pub fn suffix<S: AsRef<str> + ?Sized>(&mut self, suffix: &'b S) -> &mut Self {
         self.suffix = suffix.as_ref();
         self
     }
@@ -424,7 +423,7 @@ impl<'a, 'b> Builder<'a, 'b> {
     /// [security]: struct.NamedTempFile.html#security
     /// [resource-leaking]: struct.NamedTempFile.html#resource-leaking
     pub fn tempfile(&self) -> io::Result<NamedTempFile> {
-        self.tempfile_in(&env::temp_dir())
+        self.tempfile_in(&util::temp_dir()?)
     }
 
     /// Create the named temporary file in the specified directory.
@@ -459,7 +458,7 @@ impl<'a, 'b> Builder<'a, 'b> {
     ///
     /// [security]: struct.NamedTempFile.html#security
     /// [resource-leaking]: struct.NamedTempFile.html#resource-leaking
-    pub fn tempfile_in<P: AsRef<Path>>(&self, dir: P) -> io::Result<NamedTempFile> {
+    pub fn tempfile_in<P: AsRef<Utf8Path>>(&self, dir: P) -> io::Result<NamedTempFile> {
         util::create_helper(
             dir.as_ref(),
             self.prefix,
@@ -498,7 +497,7 @@ impl<'a, 'b> Builder<'a, 'b> {
     ///
     /// [resource-leaking]: struct.TempDir.html#resource-leaking
     pub fn tempdir(&self) -> io::Result<TempDir> {
-        self.tempdir_in(&env::temp_dir())
+        self.tempdir_in(&util::temp_dir()?)
     }
 
     /// Attempts to make a temporary directory inside of `dir`.
@@ -528,11 +527,11 @@ impl<'a, 'b> Builder<'a, 'b> {
     /// ```
     ///
     /// [resource-leaking]: struct.TempDir.html#resource-leaking
-    pub fn tempdir_in<P: AsRef<Path>>(&self, dir: P) -> io::Result<TempDir> {
+    pub fn tempdir_in<P: AsRef<Utf8Path>>(&self, dir: P) -> io::Result<TempDir> {
         let storage;
         let mut dir = dir.as_ref();
         if !dir.is_absolute() {
-            let cur_dir = env::current_dir()?;
+            let cur_dir = util::current_dir()?;
             storage = cur_dir.join(dir);
             dir = &storage;
         }
@@ -645,9 +644,9 @@ impl<'a, 'b> Builder<'a, 'b> {
     /// [resource-leaking]: struct.NamedTempFile.html#resource-leaking
     pub fn make<F, R>(&self, f: F) -> io::Result<NamedTempFile<R>>
     where
-        F: FnMut(&Path) -> io::Result<R>,
+        F: FnMut(&Utf8Path) -> io::Result<R>,
     {
-        self.make_in(&env::temp_dir(), f)
+        self.make_in(&util::temp_dir()?, f)
     }
 
     /// This is the same as [`Builder::make`], except `dir` is used as the base
@@ -674,8 +673,8 @@ impl<'a, 'b> Builder<'a, 'b> {
     /// ```
     pub fn make_in<F, R, P>(&self, dir: P, mut f: F) -> io::Result<NamedTempFile<R>>
     where
-        F: FnMut(&Path) -> io::Result<R>,
-        P: AsRef<Path>,
+        F: FnMut(&Utf8Path) -> io::Result<R>,
+        P: AsRef<Utf8Path>,
     {
         util::create_helper(
             dir.as_ref(),

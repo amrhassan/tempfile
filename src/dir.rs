@@ -8,9 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use camino::{Utf8Path, Utf8PathBuf};
 use remove_dir_all::remove_dir_all;
 use std::mem;
-use std::path::{self, Path, PathBuf};
+use std::path::Path;
 use std::{fmt, fs, io};
 
 use crate::error::IoResultExt;
@@ -110,7 +111,7 @@ pub fn tempdir() -> io::Result<TempDir> {
 ///
 /// [`TempDir`]: struct.TempDir.html
 /// [resource-leaking]: struct.TempDir.html#resource-leaking
-pub fn tempdir_in<P: AsRef<Path>>(dir: P) -> io::Result<TempDir> {
+pub fn tempdir_in<P: AsRef<Utf8Path>>(dir: P) -> io::Result<TempDir> {
     TempDir::new_in(dir)
 }
 
@@ -193,7 +194,7 @@ pub fn tempdir_in<P: AsRef<Path>>(dir: P) -> io::Result<TempDir> {
 /// [`std::fs`]: http://doc.rust-lang.org/std/fs/index.html
 /// [`std::process::exit()`]: http://doc.rust-lang.org/std/process/fn.exit.html
 pub struct TempDir {
-    path: Box<Path>,
+    path: Box<Utf8Path>,
 }
 
 impl TempDir {
@@ -260,7 +261,7 @@ impl TempDir {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn new_in<P: AsRef<Path>>(dir: P) -> io::Result<TempDir> {
+    pub fn new_in<P: AsRef<Utf8Path>>(dir: P) -> io::Result<TempDir> {
         Builder::new().tempdir_in(dir)
     }
 
@@ -293,7 +294,7 @@ impl TempDir {
     /// # }
     /// ```
     #[must_use]
-    pub fn path(&self) -> &path::Path {
+    pub fn path(&self) -> &Utf8Path {
         self.path.as_ref()
     }
 
@@ -325,13 +326,13 @@ impl TempDir {
     /// # }
     /// ```
     #[must_use]
-    pub fn into_path(self) -> PathBuf {
+    pub fn into_path(self) -> Utf8PathBuf {
         // Prevent the Drop impl from being called.
         let mut this = mem::ManuallyDrop::new(self);
 
         // replace this.path with an empty Box, since an empty Box does not
         // allocate any heap memory.
-        mem::replace(&mut this.path, PathBuf::new().into_boxed_path()).into()
+        mem::replace(&mut this.path, Utf8PathBuf::new().into_boxed_path()).into()
     }
 
     /// Closes and removes the temporary directory, returning a `Result`.
@@ -379,7 +380,7 @@ impl TempDir {
 
         // Set self.path to empty Box to release the memory, since an empty
         // Box does not allocate any heap memory.
-        self.path = PathBuf::new().into_boxed_path();
+        self.path = Utf8PathBuf::new().into_boxed_path();
 
         // Prevent the Drop impl from being called.
         mem::forget(self);
@@ -390,6 +391,12 @@ impl TempDir {
 
 impl AsRef<Path> for TempDir {
     fn as_ref(&self) -> &Path {
+        self.path().as_std_path()
+    }
+}
+
+impl AsRef<Utf8Path> for TempDir {
+    fn as_ref(&self) -> &Utf8Path {
         self.path()
     }
 }
@@ -408,7 +415,7 @@ impl Drop for TempDir {
     }
 }
 
-pub(crate) fn create(path: PathBuf) -> io::Result<TempDir> {
+pub(crate) fn create(path: Utf8PathBuf) -> io::Result<TempDir> {
     fs::create_dir(&path)
         .with_err_path(|| &path)
         .map(|_| TempDir {
